@@ -38,8 +38,9 @@ spec:
           env:
             - name: MONGO_DB_PASSWORD
               valueFrom: 
-                name: tasky-app-secrets
-                key: MONGO_TASKS_DB
+                secretKeyRef:
+                  name: tasky-app-secret
+                  key: MONGO_TASKS_DB
             - name: DB_CONNECTION_STRING
               value: "mongodb://tasky:$(MONGO_DB_PASSWORD)@10.0.1.5:27017/tasks"
             - name: SECRET_KEY
