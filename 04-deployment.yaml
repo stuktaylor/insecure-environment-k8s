@@ -37,7 +37,7 @@ spec:
                 - ALL
           env:
             - name: MONGO_DB_PASSWORD
-              valuefrom: 
+              valueFrom: 
                 name: tasky-app-secrets
                 key: MONGO_TASKS_DB
             - name: DB_CONNECTION_STRING
