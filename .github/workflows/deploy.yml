@@ -1,0 +1,86 @@
+name: Deploy to EKS
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  id-token: write   # Required for OIDC token exchange with AWS
+  contents: read
+
+env:
+  NAMESPACE: tasky
+  AWS_REGION: eu-west-2
+  EKS_CLUSTER_NAME: ${{ vars.EKS_CLUSTER_NAME }}
+  MONGO_TASKS_SECRET_ID: ${{ secrets.MONGO_TASKS_SECRET_ID }}
+  AWS_ROLE_ARN: ${{ secrets.AWS_ROLE_ARN }}
+
+jobs:
+  deploy:
+    name: Deploy
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # ---------------------------------------------------------------------------
+      # AWS Authentication (OIDC — no long-lived credentials stored in GitHub)
+      # Prerequisite: create an IAM role that trusts the GitHub OIDC provider and
+      # store its ARN in the GitHub Actions secret AWS_ROLE_ARN.
+      # ---------------------------------------------------------------------------
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      # ---------------------------------------------------------------------------
+      # Kubernetes context — uses AWS CLI to generate a kubeconfig entry for EKS
+      # ---------------------------------------------------------------------------
+      - name: Update kubeconfig for EKS
+        run: |
+          set -euo pipefail
+          aws eks update-kubeconfig \
+            --region "$AWS_REGION" \
+            --name "$EKS_CLUSTER_NAME"
+
+      - name: Apply namespace
+        run: kubectl apply -f 00-namespace.yaml
+
+      # ---------------------------------------------------------------------------
+      # Pull secret from Secrets Manager and upsert it as a Kubernetes secret.
+      # The secret value is masked immediately to prevent log exposure, and passed
+      # via process substitution rather than --from-literal to avoid it appearing
+      # in the process argument list.
+      # ---------------------------------------------------------------------------
+      - name: Sync Secrets Manager secret to Kubernetes
+        run: |
+          set -euo pipefail
+
+          SECRET_VALUE=$(aws secretsmanager get-secret-value \
+            --secret-id "$MONGO_TASKS_SECRET_ID" \
+            --query SecretString \
+            --output text)
+
+          # Mask the value so it is redacted in any subsequent log output
+          echo "::add-mask::$SECRET_VALUE"
+
+          kubectl create secret generic tasky-app-secret \
+            --namespace "$NAMESPACE" \
+            --from-file=MONGO_TASKS=<(echo -n "$SECRET_VALUE") \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+      # ---------------------------------------------------------------------------
+      # Apply all numbered manifests in order, skipping 00-namespace.yaml which
+      # was already applied above.
+      # ---------------------------------------------------------------------------
+      - name: Deploy Kubernetes manifests
+        run: |
+          set -euo pipefail
+          while IFS= read -r manifest; do
+            echo "Applying $manifest"
+            kubectl apply -f "$manifest"
+          done < <(find . -maxdepth 1 -name '[0-9]*-*.yaml' | grep -v '/00-' | sort -V)
