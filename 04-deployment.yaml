@@ -41,7 +41,7 @@ spec:
                 secretKeyRef:
                   name: tasky-app-secret
                   key: MONGO_TASKS_DB
-            - name: DB_CONNECTION_STRING
+            - name: MONGODB_URI
               value: "mongodb://tasky:$(MONGO_DB_PASSWORD)@10.0.1.5:27017/tasks"
             - name: SECRET_KEY
               value: "secret123"
