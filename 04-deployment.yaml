@@ -1,0 +1,46 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tasky
+  namespace: tasky
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: tasky
+  template:
+    metadata:
+      labels:
+        app: tasky
+    spec:
+      serviceAccountName: tasky-sa
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: tasky
+          image: 548932260189.dkr.ecr.eu-west-2.amazonaws.com/tasky:1.0
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8080
+              protocol: TCP
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          env:
+            - name: MONGO_DB_PASSWORD
+              valuefrom: 
+                name: tasky-app-secrets
+                key: MONGO_TASKS_DB
+            - name: DB_CONNECTION_STRING
+              value: "mongodb://tasky:$(MONGO_DB_PASSWORD)@10.0.1.5:27017/tasks"
+            - name: SECRET_KEY
+              value: "secret123"
